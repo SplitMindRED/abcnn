@@ -13,6 +13,8 @@ using std::endl;
 
 Eigen::Vector3f a;
 
+// sigmoid 1/(1+e^(-x))
+
 const cv::Size size_raw(28, 28);   // original one number
 const cv::Size size_big(250, 250); // upscaled one number
 // const cv::Size size_raw(28, 28 * 10);   // original row of numbers
@@ -36,33 +38,13 @@ int main(int, char**)
   cout << "Hello, world!" << endl;
 
   std::ifstream input("/workspace/neural_network/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte", std::ios::binary);
-  // std::ifstream input("/workspace/neural_network/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte", std::ios::binary | std::ios::ate);
-
-  // std::ifstream::pos_type pos = input.tellg();
-  // std::vector<char> result(pos);
 
   std::vector<char> bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
   char* array = new char[size_raw.width * size_raw.height];
 
-  // input.seekg(0, std::ios::beg);
-  // input.read(result.data(), pos);
-
-  // cv::Mat img = cv::Mat(cv::Size(100, 100), CV_8UC1, cv::Scalar(255));
   cv::Mat img = cv::Mat(size_raw, CV_8UC1, cv::Scalar(255));
-  // cv::Mat img = cv::Mat(size_big, CV_8UC1, cv::Scalar(255));
 
   memcpy(img.data, bytes.data() + 4 * sizeof(uint32_t), size_raw.width * size_raw.height);
-  // memcpy(img.data, result.data(), size_raw.width * size_raw.height);
-  // memcpy(img.data, bytes.data(), size_big.width * size_big.height);
-
-  // cv::Mat image2 = getImage(bytes.data(), 100);
-
-  // cv::resize(img, img, size_big);
-  // cv::resize(image2, image2, size_big);
-
-  // cv::imshow("123", img);
-  // cv::imshow("1", image2);
-  // char c = cv::waitKey();
 
   size_t image_counter = 0;
 
