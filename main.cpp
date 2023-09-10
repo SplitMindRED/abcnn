@@ -8,6 +8,8 @@
 #include <opencv4/opencv2/highgui.hpp>
 #include <opencv4/opencv2/imgproc.hpp>
 
+#include "include/project_path.h"
+
 using std::cout;
 using std::endl;
 
@@ -37,7 +39,7 @@ int main(int, char**)
 {
   cout << "Hello, world!" << endl;
 
-  std::ifstream input("/workspace/neural_network/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte", std::ios::binary);
+  std::ifstream input(PROJECT_PATH + std::string("/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte"), std::ios::binary);
 
   std::vector<char> bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
   char* array = new char[size_raw.width * size_raw.height];
