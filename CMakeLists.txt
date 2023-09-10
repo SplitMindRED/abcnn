@@ -16,4 +16,4 @@ include_directories(
 
 add_executable(neural_network main.cpp)
 
-target_link_libraries(neural_network ${Eigen_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(neural_network ${Eigen_LIBRARIES} ${OpenCV_LIBS} pthread)
