@@ -1,3 +1,4 @@
+#include <csignal>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -20,6 +21,17 @@ using std::endl;
 // training set label file: 32 bit 2049 (magic number), 32 bit 60000 (number of items), 8 bit label...
 // training set image file: 32 bit 2051 (magic number), 32 bit 60000 (number of items), 32 bit 28 (number of rows), 32 bit 28 (number of cols), 8 bit pixel...
 
+namespace
+{
+volatile __sig_atomic_t signal_status;
+}
+
+void signal_handler(int signal)
+{
+  signal_status = signal;
+  cout << "CUSTOM SIGINT" << endl;
+}
+
 const cv::Size size_raw(28, 28);   // original one number
 const cv::Size size_big(250, 250); // upscaled one number
 // const cv::Size size_raw(28, 28 * 10);   // original row of numbers
@@ -31,25 +43,39 @@ const uint8_t num_neurons = 10;
 // const uint8_t num_threads = 1; // 275 ms epoch
 // const uint8_t num_threads = 2; // 150 ms
 // const uint8_t num_threads = 3; // 100 ms
+// const uint8_t num_threads = 4; // 100 ms
 // const uint8_t num_threads = 6; // 70 ms
-const uint8_t num_threads = 10; // 70 ms
+// const uint8_t num_threads = 10; // 70 ms
+const uint8_t num_threads = 12; // 70 ms
 
 std::thread th[num_threads];
 
 typedef Eigen::Matrix<float, num_neurons, 1> Vector;
 typedef Eigen::Matrix<float, 10, 1> Vec10f;
 
-Eigen::Matrix<float, 28 * 28, 1> a1;               // input layer
-Vector a2;                                         // hidden layer
-Vector a3;                                         // output layer
-Vector z2;                                         //
-Vector z3;                                         //
+// Eigen::Matrix<float, 28 * 28, 1> a1;               // input layer
+// Vector a2;                                         // hidden layer
+// Vector a3;                                         // output layer
+// Vector z2;                                         //
+// Vector z3;                                         //
 Eigen::Matrix<float, num_neurons, 28 * 28> w2;     // 2 layer weight
 Eigen::Matrix<float, num_neurons, num_neurons> w3; // 3 layer weight
 Vector b2;                                         // 2 layer bias
 Vector b3;                                         // 3 layer bias
-Vector be2;                                        // 2 layer error
-Vector be3;                                        // 3 layer error
+// Vector be2;                                        // 2 layer error
+// Vector be3;                                        // 3 layer error
+
+Eigen::Matrix<float, 28 * 28, 1> a1[num_threads]; // input layer
+Vector a2[num_threads];                           // hidden layer
+Vector a3[num_threads];                           // output layer
+Vector z2[num_threads];                           //
+Vector z3[num_threads];                           //
+// Eigen::Matrix<float, num_neurons, 28 * 28> w2[num_threads];     // 2 layer weight
+// Eigen::Matrix<float, num_neurons, num_neurons> w3[num_threads]; // 3 layer weight
+// Vector b2[num_threads];                                         // 2 layer bias
+// Vector b3[num_threads];                                         // 3 layer bias
+Vector be2[num_threads]; // 2 layer error
+Vector be3[num_threads]; // 3 layer error
 
 Eigen::Matrix<float, num_neurons, 28 * 28> dC_dw2;     //
 Eigen::Matrix<float, num_neurons, num_neurons> dC_dw3; //
@@ -61,22 +87,33 @@ Eigen::Matrix<float, num_neurons, num_neurons> dC_dw3_avr[num_threads]; //
 Vector dC_db2_avr[num_threads];                                         //
 Vector dC_db3_avr[num_threads];                                         //
 
+Eigen::Matrix<float, num_neurons, 28 * 28> _dC_dw2[num_threads];     //
+Eigen::Matrix<float, num_neurons, num_neurons> _dC_dw3[num_threads]; //
+Vector _dC_db2[num_threads];                                         //
+Vector _dC_db3[num_threads];                                         //
+
 size_t image_counter = 0;
 const uint32_t number_of_images = 60000;
-uint8_t label = 0;
+uint8_t label[num_threads];
 
-float mu = 0.01;
+// float mu = 0.01;
+// float mu = 0.5;
+// float mu = 5;
+float mu = 10;
 uint16_t epoch = 0;
 float C_train[num_threads];
 float C_all = 0;
 
+Vector y[num_threads];
+float C[num_threads];
+
+uint32_t counter[num_threads];
+
 std::mutex m1;
 std::mutex m2;
-
-void testTh(float a)
-{
-  a = 10;
-}
+std::mutex m3;
+std::mutex m4;
+std::mutex m5;
 
 void getImage(char* file_array, size_t image_number, cv::Mat& image)
 {
@@ -85,11 +122,15 @@ void getImage(char* file_array, size_t image_number, cv::Mat& image)
 
 void getLabel(char* file_array, size_t image_number, uint8_t& label)
 {
+  // m4.lock();
   memcpy(&label, file_array + 2 * sizeof(uint32_t) + image_number, 1);
+  // m4.unlock();
 }
 
 uint8_t getAnswer(Vector& nn_out)
 {
+  // m3.lock();
+
   uint8_t answer = 0;
 
   float tmp = 0;
@@ -103,16 +144,22 @@ uint8_t getAnswer(Vector& nn_out)
     }
   }
 
+  // m3.unlock();
+
   return answer;
 }
 
 void getInput(char* file_array, size_t image_number, Eigen::Matrix<float, 28 * 28, 1>& input)
 {
-  static Eigen::Matrix<uint8_t, 28 * 28, 1> tmp;
+  // m5.lock();
+
+  Eigen::Matrix<uint8_t, 28 * 28, 1> tmp;
 
   memcpy(tmp.data(), file_array + 4 * sizeof(uint32_t) + image_number * size_raw.area(), size_raw.width * size_raw.height);
 
   input = tmp.cast<float>() / 255.0;
+
+  // m5.unlock();
 }
 
 Vec10f getDesiredOutput(uint8_t label)
@@ -159,61 +206,55 @@ void train(uint8_t thread_num, char* train_images_bytes, char* train_labels_byte
   dC_db2_avr[thread_num].setZero();
   dC_db3_avr[thread_num].setZero();
 
-  Eigen::Matrix<float, num_neurons, 28 * 28> _dC_dw2;     //
-  Eigen::Matrix<float, num_neurons, num_neurons> _dC_dw3; //
-  Vector _dC_db2;                                         //
-  Vector _dC_db3;                                         //
+  counter[thread_num] = start;
 
-  uint32_t counter = start;
-
-  while (counter < stop)
+  while (counter[thread_num] < stop)
   {
-    getLabel(train_labels_bytes, counter, label);
-    getInput(train_images_bytes, counter, a1);
+    getLabel(train_labels_bytes, counter[thread_num], label[thread_num]);
+    getInput(train_images_bytes, counter[thread_num], a1[thread_num]);
 
-    z2 = w2 * a1 + b2;
-    a2 = sigmoid(z2);
-    z3 = w3 * a2 + b3;
-    a3 = sigmoid(z3);
+    z2[thread_num] = w2 * a1[thread_num] + b2;
+    a2[thread_num] = sigmoid(z2[thread_num]);
+    z3[thread_num] = w3 * a2[thread_num] + b3;
+    a3[thread_num] = sigmoid(z3[thread_num]);
 
-    Vector y = getDesiredOutput(label);
+    y[thread_num] = getDesiredOutput(label[thread_num]);
+    C[thread_num] = 1.0 / 2.0 * (y[thread_num] - a3[thread_num]).transpose() * (y[thread_num] - a3[thread_num]);
 
-    float C = 1.0 / 2.0 * (y - a3).transpose() * (y - a3);
-
-    C_train[thread_num] += C;
+    C_train[thread_num] += C[thread_num];
 
     // cout << "C: " << C << endl;
     // cout << "thread[" << (int)thread_num << "] image: " << counter << endl;
 
-    be3 = (y - a3).cwiseProduct(sigmoid(z3).cwiseProduct((Vector::Ones() - sigmoid(z3))));
-    be2 = (w3.transpose() * be3).cwiseProduct(sigmoid(z3).cwiseProduct((Vector::Ones() - sigmoid(z3))));
+    be3[thread_num] = (y[thread_num] - a3[thread_num]).cwiseProduct(sigmoid(z3[thread_num]).cwiseProduct((Vector::Ones() - sigmoid(z3[thread_num]))));
+    be2[thread_num] = (w3.transpose() * be3[thread_num]).cwiseProduct(sigmoid(z3[thread_num]).cwiseProduct((Vector::Ones() - sigmoid(z3[thread_num]))));
 
     for (uint16_t j = 0; j < 10; j++)
     {
-      _dC_db3(j) = be3(j);
+      _dC_db3[thread_num](j) = be3[thread_num](j);
 
       for (uint16_t k = 0; k < 10; k++)
       {
-        _dC_dw3(j, k) = a2(k) * be3[j];
+        _dC_dw3[thread_num](j, k) = a2[thread_num](k) * be3[thread_num][j];
       }
     }
 
     for (uint16_t j = 0; j < 10; j++)
     {
-      _dC_db2(j) = be2(j);
+      _dC_db2[thread_num](j) = be2[thread_num](j);
 
       for (uint16_t k = 0; k < 28 * 28; k++)
       {
-        _dC_dw2(j, k) = a1(k) * be2[j];
+        _dC_dw2[thread_num](j, k) = a1[thread_num](k) * be2[thread_num][j];
       }
     }
 
-    dC_dw2_avr[thread_num] += _dC_dw2;
-    dC_dw3_avr[thread_num] += _dC_dw3;
-    dC_db2_avr[thread_num] += _dC_db2;
-    dC_db3_avr[thread_num] += _dC_db3;
+    dC_dw2_avr[thread_num] += _dC_dw2[thread_num];
+    dC_dw3_avr[thread_num] += _dC_dw3[thread_num];
+    dC_db2_avr[thread_num] += _dC_db2[thread_num];
+    dC_db3_avr[thread_num] += _dC_db3[thread_num];
 
-    counter++;
+    counter[thread_num]++;
   }
 }
 
@@ -330,6 +371,8 @@ int main(int, char**)
 {
   cout << "Hello, world!" << endl;
 
+  std::signal(SIGINT, signal_handler);
+
   cv::Mat hello(cv::Size(100, 100), CV_8UC1, cv::Scalar(255));
   cv::imshow("hello", hello);
   cv::waitKey();
@@ -347,14 +390,20 @@ int main(int, char**)
   b2.setRandom();
   b3.setRandom();
 
-  getImage(train_images_bytes.data(), image_counter, image);
-  getLabel(train_labels_bytes.data(), image_counter, label);
-  getInput(train_images_bytes.data(), image_counter, a1);
+  // getImage(train_images_bytes.data(), image_counter, image);
+  // getLabel(train_labels_bytes.data(), image_counter, label);
+  // getInput(train_images_bytes.data(), image_counter, a1);
 
   loadWeights();
 
   for (uint16_t i = 0; i < 10000; i++)
   {
+    if (signal_status == 2)
+    {
+      cout << "STOP TRAINING" << endl;
+      break;
+    }
+
     auto start = std::chrono::high_resolution_clock::now();
     epoch++;
     cout << "Start training, epoch: " << epoch << endl;
@@ -408,44 +457,44 @@ int main(int, char**)
 
   image_counter = 0;
 
-  while (1)
-  {
-    getImage(train_images_bytes.data(), image_counter, image);
-    getLabel(train_labels_bytes.data(), image_counter, label);
-    getInput(train_images_bytes.data(), image_counter, a1);
+  // while (signal_status != 2)
+  // {
+  //   getImage(train_images_bytes.data(), image_counter, image);
+  //   getLabel(train_labels_bytes.data(), image_counter, label);
+  //   getInput(train_images_bytes.data(), image_counter, a1);
 
-    z2 = w2 * a1 + b2;
-    a2 = sigmoid(z2);
-    z3 = w3 * a2 + b3;
-    a3 = sigmoid(z3);
+  //   z2 = w2 * a1 + b2;
+  //   a2 = sigmoid(z2);
+  //   z3 = w3 * a2 + b3;
+  //   a3 = sigmoid(z3);
 
-    int answer = getAnswer(a3);
+  //   int answer = getAnswer(a3);
 
-    cv::resize(image, image_big, size_big);
+  //   cv::resize(image, image_big, size_big);
 
-    cv::cvtColor(image_big, image_big, cv::COLOR_GRAY2BGR);
-    cv::putText(image_big, std::to_string((int)image_counter), cv::Point(10, 30), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
-    cv::putText(image_big, std::to_string((int)label), cv::Point(10, 60), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
-    cv::putText(image_big, std::to_string((int)answer), cv::Point(10, 90), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
+  //   cv::cvtColor(image_big, image_big, cv::COLOR_GRAY2BGR);
+  //   cv::putText(image_big, std::to_string((int)image_counter), cv::Point(10, 30), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
+  //   cv::putText(image_big, std::to_string((int)label), cv::Point(10, 60), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
+  //   cv::putText(image_big, std::to_string((int)answer), cv::Point(10, 90), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
 
-    cv::imshow("Image", image_big);
-    char c = cv::waitKey();
+  //   cv::imshow("Image", image_big);
+  //   char c = cv::waitKey();
 
-    // cout << (int)c << endl;
+  //   // cout << (int)c << endl;
 
-    if (c == 83)
-    {
-      getImage(train_images_bytes.data(), image_counter, image);
-      getLabel(train_labels_bytes.data(), image_counter, label);
-      getInput(train_images_bytes.data(), image_counter, a1);
-      image_counter++;
-    }
+  //   if (c == 83)
+  //   {
+  //     getImage(train_images_bytes.data(), image_counter, image);
+  //     getLabel(train_labels_bytes.data(), image_counter, label);
+  //     getInput(train_images_bytes.data(), image_counter, a1);
+  //     image_counter++;
+  //   }
 
-    if (c == 27)
-    {
-      break;
-    }
-  }
+  //   if (c == 27)
+  //   {
+  //     break;
+  //   }
+  // }
 
   dataset_train_images.close();
   dataset_train_labels.close();
