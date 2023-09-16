@@ -32,6 +32,15 @@ void signal_handler(int signal)
   cout << "CUSTOM SIGINT" << endl;
 }
 
+std::ifstream dataset_train_images;
+std::ifstream dataset_train_labels;
+std::ifstream dataset_test_images;
+std::ifstream dataset_test_labels;
+std::vector<char> train_images_bytes;
+std::vector<char> train_labels_bytes;
+std::vector<char> test_images_bytes;
+std::vector<char> test_labels_bytes;
+
 const cv::Size size_raw(28, 28);   // original one number
 const cv::Size size_big(250, 250); // upscaled one number
 
@@ -197,6 +206,14 @@ Vector sigmoid(Vector& in)
 Vec10d error[num_threads];
 Vec10d sigmoid_prime[num_threads];
 
+void forward(uint8_t thread_num)
+{
+  z2[thread_num] = w2 * a1[thread_num] + b2;
+  a2[thread_num] = sigmoid(z2[thread_num]);
+  z3[thread_num] = w3 * a2[thread_num] + b3;
+  a3[thread_num] = sigmoid(z3[thread_num]);
+}
+
 void train(uint8_t thread_num, char* train_images_bytes, char* train_labels_bytes, uint32_t start, uint32_t stop)
 {
   C_train[thread_num] = 0;
@@ -213,22 +230,19 @@ void train(uint8_t thread_num, char* train_images_bytes, char* train_labels_byte
     getLabel(train_labels_bytes, counter[thread_num], label[thread_num]);
     getInput(train_images_bytes, counter[thread_num], a1[thread_num]);
 
-    z2[thread_num] = w2 * a1[thread_num] + b2;
-    a2[thread_num] = sigmoid(z2[thread_num]);
-    z3[thread_num] = w3 * a2[thread_num] + b3;
-    a3[thread_num] = sigmoid(z3[thread_num]);
+    // z2[thread_num] = w2 * a1[thread_num] + b2;
+    // a2[thread_num] = sigmoid(z2[thread_num]);
+    // z3[thread_num] = w3 * a2[thread_num] + b3;
+    // a3[thread_num] = sigmoid(z3[thread_num]);
+    forward(thread_num);
 
     y[thread_num] = getDesiredOutput(label[thread_num]);
     error[thread_num] = y[thread_num] - a3[thread_num];
-    // C[thread_num] = 1.0 / 2.0 * (y[thread_num] - a3[thread_num]).transpose() * (y[thread_num] - a3[thread_num]);
     C[thread_num] = 1.0 / 2.0 * (error[thread_num]).transpose() * (error[thread_num]);
 
     C_train[thread_num] += C[thread_num];
 
-    // cout << "C: " << C << endl;
-    // cout << "thread[" << (int)thread_num << "] image: " << counter << endl;
-
-    sigmoid_prime[thread_num] = sigmoid(z3[thread_num]).cwiseProduct((Vector::Ones() - sigmoid(z3[thread_num])));
+    sigmoid_prime[thread_num] = a3[thread_num].cwiseProduct((Vector::Ones() - a3[thread_num]));
 
     be3[thread_num] = (error[thread_num]).cwiseProduct(sigmoid_prime[thread_num]);
     be2[thread_num] = (w3.transpose() * be3[thread_num]).cwiseProduct(sigmoid_prime[thread_num]);
@@ -371,36 +385,11 @@ void loadWeights()
   // cout << "Read b3 : " << b3 << endl;
 }
 
-int main(int, char**)
+void trainNet(uint32_t number_of_epochs)
 {
-  cout << "Hello, world!" << endl;
-
-  std::signal(SIGINT, signal_handler);
-
   cv::Mat hello(cv::Size(100, 100), CV_8UC1, cv::Scalar(255));
-  cv::imshow("hello", hello);
-  cv::waitKey();
 
-  std::ifstream dataset_train_images(PROJECT_PATH + std::string("/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte"), std::ios::binary);
-  std::ifstream dataset_train_labels(PROJECT_PATH + std::string("/dataset/train-labels-idx1-ubyte/train-labels.idx1-ubyte"), std::ios::binary);
-  std::ifstream dataset_test_images(PROJECT_PATH + std::string("/dataset/t10k-images-idx3-ubyte/t10k-images.idx3-ubyte"), std::ios::binary);
-  std::ifstream dataset_test_labels(PROJECT_PATH + std::string("/dataset/t10k-labels-idx1-ubyte/t10k-labels.idx1-ubyte"), std::ios::binary);
-  std::vector<char> train_images_bytes((std::istreambuf_iterator<char>(dataset_train_images)), std::istreambuf_iterator<char>());
-  std::vector<char> train_labels_bytes((std::istreambuf_iterator<char>(dataset_train_labels)), std::istreambuf_iterator<char>());
-  std::vector<char> test_images_bytes((std::istreambuf_iterator<char>(dataset_test_images)), std::istreambuf_iterator<char>());
-  std::vector<char> test_labels_bytes((std::istreambuf_iterator<char>(dataset_test_labels)), std::istreambuf_iterator<char>());
-
-  cv::Mat image(size_raw, CV_8UC1, cv::Scalar(0));
-  cv::Mat image_big;
-
-  w2.setRandom();
-  w3.setRandom();
-  b2.setRandom();
-  b3.setRandom();
-
-  loadWeights();
-
-  for (uint32_t i = 0; i < 600000; i++)
+  for (uint32_t i = 0; i < number_of_epochs; i++)
   {
     if (signal_status == 2)
     {
@@ -453,7 +442,47 @@ int main(int, char**)
     cout << "time: " << time.count() / 1000.0 << " ms" << endl;
 
     cout << "Epoch " << epoch << " training ended, C avr: " << C_all << endl;
+
+    cv::imshow("hello", hello);
+    char c = cv::waitKey(1);
+
+    if (c == 27)
+    {
+      break;
+    }
   }
+}
+
+int main(int, char**)
+{
+  cout << "Hello, world!" << endl;
+
+  std::signal(SIGINT, signal_handler);
+
+  cv::Mat hello(cv::Size(100, 100), CV_8UC1, cv::Scalar(255));
+  cv::imshow("hello", hello);
+  cv::waitKey();
+
+  dataset_train_images = std::ifstream(PROJECT_PATH + std::string("/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte"), std::ios::binary);
+  dataset_train_labels = std::ifstream(PROJECT_PATH + std::string("/dataset/train-labels-idx1-ubyte/train-labels.idx1-ubyte"), std::ios::binary);
+  dataset_test_images = std::ifstream(PROJECT_PATH + std::string("/dataset/t10k-images-idx3-ubyte/t10k-images.idx3-ubyte"), std::ios::binary);
+  dataset_test_labels = std::ifstream(PROJECT_PATH + std::string("/dataset/t10k-labels-idx1-ubyte/t10k-labels.idx1-ubyte"), std::ios::binary);
+  train_images_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_train_images)), std::istreambuf_iterator<char>());
+  train_labels_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_train_labels)), std::istreambuf_iterator<char>());
+  test_images_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_test_images)), std::istreambuf_iterator<char>());
+  test_labels_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_test_labels)), std::istreambuf_iterator<char>());
+
+  cv::Mat image(size_raw, CV_8UC1, cv::Scalar(0));
+  cv::Mat image_big;
+
+  w2.setRandom();
+  w3.setRandom();
+  b2.setRandom();
+  b3.setRandom();
+
+  loadWeights();
+
+  trainNet(100);
 
   // saveWeights();
 
@@ -468,10 +497,12 @@ int main(int, char**)
     getLabel(train_labels_bytes.data(), image_counter, label[0]);
     getInput(train_images_bytes.data(), image_counter, a1[0]);
 
-    z2[0] = w2 * a1[0] + b2;
-    a2[0] = sigmoid(z2[0]);
-    z3[0] = w3 * a2[0] + b3;
-    a3[0] = sigmoid(z3[0]);
+    // z2[0] = w2 * a1[0] + b2;
+    // a2[0] = sigmoid(z2[0]);
+    // z3[0] = w3 * a2[0] + b3;
+    // a3[0] = sigmoid(z3[0]);
+
+    forward(0);
 
     int answer = getAnswer(a3[0]);
 
@@ -506,10 +537,12 @@ int main(int, char**)
     getLabel(test_labels_bytes.data(), image_counter, label[0]);
     getInput(test_images_bytes.data(), image_counter, a1[0]);
 
-    z2[0] = w2 * a1[0] + b2;
-    a2[0] = sigmoid(z2[0]);
-    z3[0] = w3 * a2[0] + b3;
-    a3[0] = sigmoid(z3[0]);
+    // z2[0] = w2 * a1[0] + b2;
+    // a2[0] = sigmoid(z2[0]);
+    // z3[0] = w3 * a2[0] + b3;
+    // a3[0] = sigmoid(z3[0]);
+
+    forward(0);
 
     int answer = getAnswer(a3[0]);
 
@@ -544,10 +577,12 @@ int main(int, char**)
     getLabel(train_labels_bytes.data(), image_counter, label[0]);
     getInput(train_images_bytes.data(), image_counter, a1[0]);
 
-    z2[0] = w2 * a1[0] + b2;
-    a2[0] = sigmoid(z2[0]);
-    z3[0] = w3 * a2[0] + b3;
-    a3[0] = sigmoid(z3[0]);
+    // z2[0] = w2 * a1[0] + b2;
+    // a2[0] = sigmoid(z2[0]);
+    // z3[0] = w3 * a2[0] + b3;
+    // a3[0] = sigmoid(z3[0]);
+
+    forward(0);
 
     int answer = getAnswer(a3[0]);
 
