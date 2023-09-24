@@ -483,8 +483,7 @@ void trainNet(uint32_t number_of_epochs)
 
     for (uint16_t i = 0; i < num_threads; i++)
     {
-      // th[i] = std::thread(train, i, train_images_bytes.data(), train_labels_bytes.data(), number_of_images / num_threads * i, number_of_images / num_threads * (i + 1));
-      th[i] = std::thread(train2, i, train_images_bytes.data(), train_labels_bytes.data(), number_of_images / num_threads * i, number_of_images / num_threads * (i + 1));
+      th[i] = std::thread(train, i, train_images_bytes.data(), train_labels_bytes.data(), number_of_images / num_threads * i, number_of_images / num_threads * (i + 1));
     }
 
     for (uint16_t i = 0; i < num_threads; i++)
@@ -493,10 +492,10 @@ void trainNet(uint32_t number_of_epochs)
     }
 
     C_all = 0;
-    // dC_dw2.setZero();
-    // dC_dw3.setZero();
-    // dC_db2.setZero();
-    // dC_db3.setZero();
+    dC_dw2.setZero();
+    dC_dw3.setZero();
+    dC_db2.setZero();
+    dC_db3.setZero();
 
     uint32_t positives = 0;
     uint32_t negatives = 0;
@@ -504,25 +503,78 @@ void trainNet(uint32_t number_of_epochs)
     for (uint16_t thread = 0; thread < num_threads; thread++)
     {
       C_all += C_train[thread];
-      // dC_dw2 += dC_dw2_avr[thread];
-      // dC_dw3 += dC_dw3_avr[thread];
-      // dC_db2 += dC_db2_avr[thread];
-      // dC_db3 += dC_db3_avr[thread];
+      dC_dw2 += dC_dw2_avr[thread];
+      dC_dw3 += dC_dw3_avr[thread];
+      dC_db2 += dC_db2_avr[thread];
+      dC_db3 += dC_db3_avr[thread];
 
       positives += positive.at(thread);
       negatives += negative.at(thread);
     }
 
     C_all = C_all / (double)number_of_images;
-    // dC_dw2 = dC_dw2 / (double)number_of_images;
-    // dC_dw3 = dC_dw3 / (double)number_of_images;
-    // dC_db2 = dC_db2 / (double)number_of_images;
-    // dC_db3 = dC_db3 / (double)number_of_images;
+    dC_dw2 = dC_dw2 / (double)number_of_images;
+    dC_dw3 = dC_dw3 / (double)number_of_images;
+    dC_db2 = dC_db2 / (double)number_of_images;
+    dC_db3 = dC_db3 / (double)number_of_images;
 
-    // w2 = w2 + mu * dC_dw2;
-    // w3 = w3 + mu * dC_dw3;
-    // b2 = b2 + mu * dC_db2;
-    // b3 = b3 + mu * dC_db3;
+    w2 = w2 + mu * dC_dw2;
+    w3 = w3 + mu * dC_dw3;
+    b2 = b2 + mu * dC_db2;
+    b3 = b3 + mu * dC_db3;
+
+    auto stop = std::chrono::high_resolution_clock::now();
+    auto time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+    cout << "Epoch " << epoch << " training ended, time: " << time.count() / 1000.0 << " ms, ";
+    cout << "C avr: " << C_all << ", ";
+    cout << "train percent: " << positives / (float)number_of_images * 100 << endl;
+
+    cv::imshow("hello", hello);
+    char c = cv::waitKey(1);
+
+    // cout << (int)c << endl;
+
+    if (c == 115)
+    {
+      saveWeights();
+      cout << "WEIGHTS SAVED MANUALLY" << endl;
+    }
+
+    if (c == 27)
+    {
+      break;
+    }
+  }
+}
+
+void trainNet2(uint32_t number_of_epochs)
+{
+  cv::Mat hello(cv::Size(100, 100), CV_8UC1, cv::Scalar(255));
+
+  for (uint32_t i = 0; i < number_of_epochs; i++)
+  {
+    if (signal_status == 2)
+    {
+      cout << "STOP TRAINING" << endl;
+      break;
+    }
+
+    auto start = std::chrono::high_resolution_clock::now();
+    epoch++;
+    cout << "Start training, epoch: " << epoch << endl;
+
+    th[0] = std::thread(train2, 0, train_images_bytes.data(), train_labels_bytes.data(), 0, number_of_images);
+    th[0].join();
+
+    C_all = 0;
+    uint32_t positives = 0;
+    uint32_t negatives = 0;
+
+    C_all += C_train[0];
+    positives += positive.at(0);
+    negatives += negative.at(0);
+
+    C_all = C_all / (double)number_of_images;
 
     auto stop = std::chrono::high_resolution_clock::now();
     auto time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
@@ -579,9 +631,10 @@ int main(int, char**)
   b2.setRandom();
   b3.setRandom();
 
-  // loadWeights();
+  loadWeights();
 
-  trainNet(100000);
+  // trainNet(100000);
+  trainNet2(100000);
 
   // saveWeights();
 
