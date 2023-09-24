@@ -114,6 +114,13 @@ std::mutex m3;
 std::mutex m4;
 std::mutex m5;
 
+// Global variables
+cv::Mat img_draw;
+bool drawing = false;
+cv::Point prevPoint;
+
+const std::string win1 = "Draw";
+
 void getImage(char* file_array, size_t image_number, cv::Mat& image)
 {
   memcpy(image.data, file_array + 4 * sizeof(uint32_t) + image_number * size_raw.area(), size_raw.width * size_raw.height);
@@ -600,47 +607,10 @@ void trainNet2(uint32_t number_of_epochs)
   }
 }
 
-int main(int, char**)
+void validateTrain()
 {
-  cout << "Hello, world!" << endl;
-
-  std::signal(SIGINT, signal_handler);
-
-  cv::Mat hello(cv::Size(100, 100), CV_8UC1, cv::Scalar(255));
-  cv::imshow("hello", hello);
-  cv::waitKey();
-
-  dataset_train_images = std::ifstream(PROJECT_PATH + std::string("/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte"), std::ios::binary);
-  dataset_train_labels = std::ifstream(PROJECT_PATH + std::string("/dataset/train-labels-idx1-ubyte/train-labels.idx1-ubyte"), std::ios::binary);
-  dataset_test_images = std::ifstream(PROJECT_PATH + std::string("/dataset/t10k-images-idx3-ubyte/t10k-images.idx3-ubyte"), std::ios::binary);
-  dataset_test_labels = std::ifstream(PROJECT_PATH + std::string("/dataset/t10k-labels-idx1-ubyte/t10k-labels.idx1-ubyte"), std::ios::binary);
-  train_images_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_train_images)), std::istreambuf_iterator<char>());
-  train_labels_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_train_labels)), std::istreambuf_iterator<char>());
-  test_images_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_test_images)), std::istreambuf_iterator<char>());
-  test_labels_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_test_labels)), std::istreambuf_iterator<char>());
-
-  cv::Mat image(size_raw, CV_8UC1, cv::Scalar(0));
-  cv::Mat image_big;
-
-  positive.resize(num_threads);
-  negative.resize(num_threads);
-  answer.resize(num_threads);
-
-  w2.setRandom();
-  w3.setRandom();
-  b2.setRandom();
-  b3.setRandom();
-
-  loadWeights();
-
-  // trainNet(100000);
-  trainNet2(100000);
-
-  // saveWeights();
-
-  image_counter = 0;
-
   float percent = 0;
+  image_counter = 0;
 
   positive.at(0) = 0;
   negative.at(0) = 0;
@@ -675,6 +645,11 @@ int main(int, char**)
   cout << "pos + neg: " << positive.at(0) + negative.at(0) << endl;
   percent = positive.at(0) / (float)number_of_images * 100.0;
   cout << "train percent: " << percent << endl;
+}
+
+void validateTest()
+{
+  float percent = 0;
 
   image_counter = 0;
   positive.at(0) = 0;
@@ -710,6 +685,12 @@ int main(int, char**)
   cout << "pos + neg: " << positive.at(0) + negative.at(0) << endl;
   percent = positive.at(0) / 10000.0 * 100.0;
   cout << "test percent: " << percent << endl;
+}
+
+void validateTrainEach()
+{
+  cv::Mat image(size_raw, CV_8UC1, cv::Scalar(0));
+  cv::Mat image_big;
 
   image_counter = 0;
 
@@ -734,8 +715,6 @@ int main(int, char**)
     cv::imshow("Image", image_big);
     char c = cv::waitKey();
 
-    // cout << (int)c << endl;
-
     if (c == 83)
     {
       getImage(train_images_bytes.data(), image_counter, image);
@@ -749,9 +728,132 @@ int main(int, char**)
       break;
     }
   }
+}
+
+// Mouse callback function
+void onMouse(int event, int x, int y, int flags, void* userdata)
+{
+  if (event == cv::EVENT_LBUTTONDOWN)
+  {
+    drawing = true;
+    prevPoint = cv::Point(x, y);
+  }
+  else if (event == cv::EVENT_MOUSEMOVE)
+  {
+    if (drawing)
+    {
+      cv::Point currentPoint(x, y);
+      cv::line(img_draw, prevPoint, currentPoint, cv::Scalar(0, 0, 0), 10);
+      prevPoint = currentPoint;
+      cv::imshow(win1, img_draw);
+
+      //   cv::Mat img_small;
+      //   cv::Mat img_big;
+      //   cv::resize(image, img_small, cv::Size(28, 28));
+      //   cv::imshow(win2, img_small);
+      //   cv::resize(img_small, img_big, cv::Size(280, 280));
+      //   cv::imshow(win3, img_big);
+    }
+  }
+  else if (event == cv::EVENT_LBUTTONUP)
+  {
+    drawing = false;
+  }
+}
+
+int main(int, char**)
+{
+  cout << "Hello, world!" << endl;
+
+  std::signal(SIGINT, signal_handler);
+
+  cv::Mat hello(cv::Size(100, 100), CV_8UC1, cv::Scalar(255));
+  cv::imshow("hello", hello);
+  cv::waitKey();
+
+  dataset_train_images = std::ifstream(PROJECT_PATH + std::string("/dataset/train-images-idx3-ubyte/train-images.idx3-ubyte"), std::ios::binary);
+  dataset_train_labels = std::ifstream(PROJECT_PATH + std::string("/dataset/train-labels-idx1-ubyte/train-labels.idx1-ubyte"), std::ios::binary);
+  dataset_test_images = std::ifstream(PROJECT_PATH + std::string("/dataset/t10k-images-idx3-ubyte/t10k-images.idx3-ubyte"), std::ios::binary);
+  dataset_test_labels = std::ifstream(PROJECT_PATH + std::string("/dataset/t10k-labels-idx1-ubyte/t10k-labels.idx1-ubyte"), std::ios::binary);
+  train_images_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_train_images)), std::istreambuf_iterator<char>());
+  train_labels_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_train_labels)), std::istreambuf_iterator<char>());
+  test_images_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_test_images)), std::istreambuf_iterator<char>());
+  test_labels_bytes = std::vector<char>((std::istreambuf_iterator<char>(dataset_test_labels)), std::istreambuf_iterator<char>());
 
   dataset_train_images.close();
   dataset_train_labels.close();
+
+  positive.resize(num_threads);
+  negative.resize(num_threads);
+  answer.resize(num_threads);
+
+  w2.setRandom();
+  w3.setRandom();
+  b2.setRandom();
+  b3.setRandom();
+
+  loadWeights();
+
+  // trainNet(100000);
+  // trainNet2(100000);
+
+  // saveWeights();
+
+  // validateTrain();
+  // validateTest();
+  // validateTrainEach();
+
+  img_draw = cv::Mat(cv::Size(250, 250), CV_8UC3, cv::Scalar(255, 255, 255));
+
+  cv::namedWindow(win1);
+  cv::imshow(win1, img_draw);
+
+  // Set up the mouse callback function
+  cv::setMouseCallback(win1, onMouse, NULL);
+
+  while (true)
+  {
+    int key = cv::waitKey(10);
+
+    if (key == 'c')
+    {
+      cout << "clear" << endl;
+
+      img_draw = cv::Mat(cv::Size(250, 250), CV_8UC3, cv::Scalar(255, 255, 255));
+      cv::imshow(win1, img_draw);
+    }
+
+    if (key == 'f')
+    {
+      cout << "forward" << endl;
+
+      cv::Mat img_small;
+      cv::resize(img_draw, img_small, cv::Size(28, 28));
+
+      cv::cvtColor(img_small, img_small, cv::COLOR_BGR2GRAY);
+      img_small = 255 - img_small;
+      Eigen::Matrix<uint8_t, 28 * 28, 1> tmp;
+      Eigen::Matrix<double, 28 * 28, 1> input;
+      memcpy(tmp.data(), img_small.data, sizeof(uint8_t) * img_small.total());
+      input = tmp.cast<double>() / 255.0;
+
+      a1[0] = input;
+      forward();
+
+      answer.at(0) = getAnswer(a3[0]);
+
+      cv::putText(img_draw, std::to_string((int)answer.at(0)), cv::Point(10, 90), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
+
+      cv::imshow(win1, img_draw);
+    }
+
+    if (key == 27) // Exit when 'Esc' key is pressed
+    {
+      break;
+    }
+  }
+
+  cv::destroyAllWindows();
 
   return 0;
 }

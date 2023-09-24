@@ -29,12 +29,12 @@ void onMouse(int event, int x, int y, int flags, void* userdata)
       prevPoint = currentPoint;
       cv::imshow(win1, image);
 
-      cv::Mat img_small;
-      cv::Mat img_big;
-      cv::resize(image, img_small, cv::Size(28, 28));
-      cv::imshow(win2, img_small);
-      cv::resize(img_small, img_big, cv::Size(280, 280));
-      cv::imshow(win3, img_big);
+    //   cv::Mat img_small;
+    //   cv::Mat img_big;
+    //   cv::resize(image, img_small, cv::Size(28, 28));
+    //   cv::imshow(win2, img_small);
+    //   cv::resize(img_small, img_big, cv::Size(280, 280));
+    //   cv::imshow(win3, img_big);
     }
   }
   else if (event == cv::EVENT_LBUTTONUP)
@@ -55,11 +55,11 @@ int main()
   }
 
   cv::namedWindow(win1);
-  cv::namedWindow(win2);
-  cv::namedWindow(win3);
+//   cv::namedWindow(win2);
+//   cv::namedWindow(win3);
 
-  cv::moveWindow(win2, 500, 0);
-  cv::moveWindow(win3, 1000, 0);
+//   cv::moveWindow(win2, 500, 50);
+//   cv::moveWindow(win3, 1000, 50);
   cv::imshow(win1, image);
 
   // Set up the mouse callback function
