@@ -730,6 +730,76 @@ void validateTrainEach()
   }
 }
 
+cv::Mat preprocessImage(const cv::Mat& inputImage)
+{
+  // Convert the image to grayscale
+  cv::Mat gray;
+  cv::cvtColor(inputImage, gray, cv::COLOR_BGR2GRAY);
+
+  // Apply thresholding to binarize the image (assuming the digit is in black ink)
+  cv::Mat binary;
+  cv::threshold(gray, binary, 0, 255, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
+
+  // Find contours in the binary image
+  std::vector<std::vector<cv::Point>> contours;
+  cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+  // Find the largest contour (assuming it corresponds to the digit)
+  double maxArea = -1;
+  int maxAreaIdx = -1;
+  for (int i = 0; i < contours.size(); i++)
+  {
+    double area = cv::contourArea(contours[i]);
+    if (area > maxArea)
+    {
+      maxArea = area;
+      maxAreaIdx = i;
+    }
+  }
+
+  // Crop the digit using the bounding box of the largest contour
+  if (maxAreaIdx != -1)
+  {
+    cv::Rect boundingBox = cv::boundingRect(contours[maxAreaIdx]);
+    cv::Mat digit = binary(boundingBox);
+
+    // Calculate the aspect ratio of the bounding box
+    double aspectRatio = static_cast<double>(boundingBox.width) / boundingBox.height;
+
+    // Determine the target size while maintaining the aspect ratio (20x20 pixels)
+    int targetWidth, targetHeight;
+    if (aspectRatio > 1.0)
+    {
+      targetWidth = 20;
+      targetHeight = static_cast<int>(20.0 / aspectRatio);
+    }
+    else
+    {
+      targetWidth = static_cast<int>(20.0 * aspectRatio);
+      targetHeight = 20;
+    }
+
+    // Resize the digit while preserving the aspect ratio
+    cv::Mat resizedDigit;
+    cv::resize(digit, resizedDigit, cv::Size(targetWidth, targetHeight));
+
+    // Create a black canvas (28x28 pixels)
+    cv::Mat canvas(28, 28, CV_8U, cv::Scalar(0));
+
+    // Calculate the position to place the digit in the center
+    int x_offset = (28 - targetWidth) / 2;
+    int y_offset = (28 - targetHeight) / 2;
+
+    // Copy the resized digit to the canvas
+    resizedDigit.copyTo(canvas(cv::Rect(x_offset, y_offset, targetWidth, targetHeight)));
+
+    return canvas;
+  }
+
+  // Return an empty matrix if no digit is found
+  return cv::Mat();
+}
+
 // Mouse callback function
 void onMouse(int event, int x, int y, int flags, void* userdata)
 {
@@ -743,16 +813,9 @@ void onMouse(int event, int x, int y, int flags, void* userdata)
     if (drawing)
     {
       cv::Point currentPoint(x, y);
-      cv::line(img_draw, prevPoint, currentPoint, cv::Scalar(0, 0, 0), 10);
+      cv::line(img_draw, prevPoint, currentPoint, cv::Scalar(0, 0, 0), 13);
       prevPoint = currentPoint;
       cv::imshow(win1, img_draw);
-
-      //   cv::Mat img_small;
-      //   cv::Mat img_big;
-      //   cv::resize(image, img_small, cv::Size(28, 28));
-      //   cv::imshow(win2, img_small);
-      //   cv::resize(img_small, img_big, cv::Size(280, 280));
-      //   cv::imshow(win3, img_big);
     }
   }
   else if (event == cv::EVENT_LBUTTONUP)
@@ -801,9 +864,9 @@ int main(int, char**)
 
   // validateTrain();
   // validateTest();
-  // validateTrainEach();
+  validateTrainEach();
 
-  img_draw = cv::Mat(cv::Size(250, 250), CV_8UC3, cv::Scalar(255, 255, 255));
+  img_draw = cv::Mat(size_big, CV_8UC3, cv::Scalar(255, 255, 255));
 
   cv::namedWindow(win1);
   cv::imshow(win1, img_draw);
@@ -819,7 +882,7 @@ int main(int, char**)
     {
       cout << "clear" << endl;
 
-      img_draw = cv::Mat(cv::Size(250, 250), CV_8UC3, cv::Scalar(255, 255, 255));
+      img_draw = cv::Mat(size_big, CV_8UC3, cv::Scalar(255, 255, 255));
       cv::imshow(win1, img_draw);
     }
 
@@ -830,11 +893,19 @@ int main(int, char**)
       cv::Mat img_small;
       cv::resize(img_draw, img_small, cv::Size(28, 28));
 
-      cv::cvtColor(img_small, img_small, cv::COLOR_BGR2GRAY);
-      img_small = 255 - img_small;
+      cv::Mat img1 = preprocessImage(img_draw);
+
+      if (img1.total() > 0)
+      {
+        cv::imshow("123", img1);
+      }
+
+      // cv::cvtColor(img_small, img_small, cv::COLOR_BGR2GRAY);
+      // img_small = 255 - img_small;
       Eigen::Matrix<uint8_t, 28 * 28, 1> tmp;
       Eigen::Matrix<double, 28 * 28, 1> input;
-      memcpy(tmp.data(), img_small.data, sizeof(uint8_t) * img_small.total());
+      // memcpy(tmp.data(), img_small.data, sizeof(uint8_t) * img_small.total());
+      memcpy(tmp.data(), img1.data, sizeof(uint8_t) * img1.total());
       input = tmp.cast<double>() / 255.0;
 
       a1[0] = input;
@@ -842,7 +913,8 @@ int main(int, char**)
 
       answer.at(0) = getAnswer(a3[0]);
 
-      cv::putText(img_draw, std::to_string((int)answer.at(0)), cv::Point(10, 90), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
+      // cv::putText(img_draw, std::to_string((int)answer.at(0)), cv::Point(10, 90), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(118, 255, 0), 2);
+      cv::putText(img_draw, std::to_string((int)answer.at(0)), cv::Point(10, 90), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(0, 118, 255), 2);
 
       cv::imshow(win1, img_draw);
     }
